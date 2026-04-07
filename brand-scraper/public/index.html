@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<title>Brand Outreach</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--surface:rgba(255,255,255,.04);--border:rgba(255,255,255,.08);
+  --cyan:#00d4d4;--cyan2:rgba(0,212,212,.15);--text:#e8e8e8;--muted:rgba(255,255,255,.5);
+  --dim:rgba(255,255,255,.25);--green:#3fb950;--yellow:#d29922;--red:#f85149;
+  --radius:12px;
+}
+html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden}
+/* animated bg */
+.bg-orb{position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
+.bg-orb1{width:500px;height:500px;background:rgba(0,212,212,.06);top:-100px;right:-100px;animation:breathe 8s ease-in-out infinite}
+.bg-orb2{width:400px;height:400px;background:rgba(0,212,212,.04);bottom:-100px;left:-100px;animation:breathe 10s ease-in-out infinite reverse}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+/* layout */
+main{position:relative;z-index:1;max-width:1300px;margin:0 auto;padding:24px 20px 60px}
+/* header */
+header{position:sticky;top:0;z-index:100;background:rgba(10,10,15,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:60px}
+.header-title{font-size:18px;font-weight:700;letter-spacing:-.3px;color:#fff}
+.header-title span{color:var(--cyan)}
+.btn-dl{background:linear-gradient(135deg,var(--cyan),#0099aa);color:#000;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn-dl:hover{opacity:.85}
+/* glass card */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;backdrop-filter:blur(10px)}
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{text-align:center;padding:20px 12px}
+.stat-num{font-size:32px;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums;transition:all .4s}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:4px}
+/* progress */
+.prog-wrap{margin-bottom:20px}
+.prog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.prog-label{font-size:13px;color:var(--muted)}
+.phase-badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--cyan2);color:var(--cyan);letter-spacing:.5px;text-transform:uppercase}
+.prog-bar-bg{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.prog-bar-fill{height:100%;background:linear-gradient(90deg,var(--cyan),#00aaff);border-radius:3px;transition:width .6s ease;width:0%}
+/* config */
+.config-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+@media(max-width:800px){.config-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:500px){.config-grid{grid-template-columns:1fr}}
+label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
+select,input{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;outline:none;transition:border-color .2s}
+select:focus,input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
+option{background:#1a1a2e}
+.sources-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.chip{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;cursor:pointer;transition:all .2s;user-select:none}
+.chip.active{border-color:var(--cyan);background:var(--cyan2);color:var(--cyan)}
+.ctrl-row{display:flex;gap:10px;flex-wrap:wrap}
+.btn{padding:10px 22px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .2s}
+.btn-start{background:linear-gradient(135deg,var(--cyan),#0099aa);color:#000}
+.btn-start:hover{opacity:.85}
+.btn-stop{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+.btn-stop:hover{background:rgba(248,81,73,.25)}
+.btn-resume{background:rgba(0,212,212,.1);color:var(--cyan);border:1px solid var(--border)}
+.btn-resume:hover{background:var(--cyan2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+/* two-col layout */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
+/* log */
+.section-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px}
+.log{height:220px;overflow-y:auto;font-family:'SF Mono','Fira Code',monospace;font-size:11.5px;line-height:1.6}
+.log-entry{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.log-entry .ts{color:var(--dim);margin-right:8px}
+.log-info{color:var(--muted)}
+.log-success{color:var(--green)}
+.log-warn{color:var(--yellow)}
+.log-error{color:var(--red)}
+/* leads table */
+.table-wrap{overflow-x:auto}
+.search-row{display:flex;gap:10px;margin-bottom:12px}
+.search-row input{flex:1}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);padding:8px 10px;border-bottom:1px solid var(--border)}
+td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--text);vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+.badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:500}
+.badge-personal{background:rgba(63,185,80,.15);color:var(--green)}
+.badge-generic{background:rgba(210,153,34,.12);color:var(--yellow)}
+.pips{display:flex;gap:3px}
+.pip{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.pip.on{background:var(--cyan)}
+.src-chip{font-size:10px;padding:2px 7px;border-radius:8px;background:var(--cyan2);color:var(--cyan)}
+/* email builder */
+.merge-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.mtag{padding:4px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--border);color:var(--cyan);font-size:11px;cursor:pointer;transition:background .2s}
+.mtag:hover{background:var(--cyan2)}
+textarea{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:13px;outline:none;resize:vertical;transition:border-color .2s;font-family:inherit}
+textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
+.tpl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+@media(max-width:600px){.tpl-grid{grid-template-columns:1fr}}
+.tpl-row{margin-bottom:10px}
+.btn-row{display:flex;gap:8px;margin-top:10px}
+.btn-save{background:var(--cyan2);color:var(--cyan);border:1px solid rgba(0,212,212,.3);padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+.btn-save:hover{background:rgba(0,212,212,.25)}
+.btn-preview{background:var(--surface);color:var(--muted);border:1px solid var(--border);padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer}
+.btn-preview:hover{color:var(--text);border-color:rgba(255,255,255,.2)}
+/* send section */
+.send-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+@media(max-width:600px){.send-grid{grid-template-columns:1fr}}
+.send-prog-wrap{margin:12px 0}
+.send-stats{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-bottom:6px}
+.send-stat-val{font-weight:600;color:var(--text)}
+.send-prog-bg{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.send-prog-fill{height:100%;background:linear-gradient(90deg,var(--green),#00d4aa);border-radius:2px;transition:width .4s}
+.sent-hist{margin-top:12px}
+.sent-count{font-size:12px;color:var(--muted)}
+.sent-count strong{color:var(--text)}
+/* modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#13131f;border:1px solid var(--border);border-radius:14px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto}
+.modal h3{font-size:15px;margin-bottom:14px;color:#fff}
+.modal-close{float:right;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
+.preview-body{white-space:pre-wrap;font-size:13px;line-height:1.8;color:var(--text);background:rgba(255,255,255,.03);border-radius:8px;padding:14px;border:1px solid var(--border)}
+/* scrollbar */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+/* util */
+.gap-top{margin-top:16px}
+.text-cyan{color:var(--cyan)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="bg-orb bg-orb1"></div>
+<div class="bg-orb bg-orb2"></div>
+
+<header>
+  <div class="header-title">Brand <span>Outreach</span></div>
+  <button class="btn-dl" onclick="downloadCSV()">Download CSV</button>
+</header>
+
+<main>
+  <!-- Stats -->
+  <div class="stats">
+    <div class="card stat"><div class="stat-num" id="stat-leads">0</div><div class="stat-label">Leads Found</div></div>
+    <div class="card stat"><div class="stat-num" id="stat-personal">0</div><div class="stat-label">Personal Emails</div></div>
+    <div class="card stat"><div class="stat-num" id="stat-generic">0</div><div class="stat-label">Generic Emails</div></div>
+    <div class="card stat"><div class="stat-num" id="stat-domains">0</div><div class="stat-label">Brands Scraped</div></div>
+  </div>
+
+  <!-- Progress -->
+  <div class="card prog-wrap">
+    <div class="prog-header">
+      <span class="prog-label">Scraper Progress</span>
+      <span class="phase-badge" id="phase-badge">Idle</span>
+    </div>
+    <div class="prog-bar-bg"><div class="prog-bar-fill" id="prog-bar"></div></div>
+  </div>
+
+  <!-- Config -->
+  <div class="card gap-top">
+    <div class="config-grid">
+      <div>
+        <label>Target Leads</label>
+        <select id="sel-target">
+          <option value="100">100</option>
+          <option value="250">250</option>
+          <option value="500" selected>500</option>
+          <option value="1000">1,000</option>
+          <option value="2000">2,000</option>
+        </select>
+      </div>
+      <div>
+        <label>Brand Type</label>
+        <select id="sel-brand-type">
+          <option value="">All Types</option>
+        </select>
+      </div>
+      <div>
+        <label>Country</label>
+        <select id="sel-country">
+          <option value="">All Countries</option>
+        </select>
+      </div>
+    </div>
+    <div class="sources-label">Sources</div>
+    <div class="chips">
+      <div class="chip active" data-src="instagram">Instagram</div>
+      <div class="chip active" data-src="facebook">Facebook</div>
+      <div class="chip active" data-src="duckduckgo">DuckDuckGo</div>
+      <div class="chip active" data-src="bing">Bing</div>
+    </div>
+    <div class="ctrl-row">
+      <button class="btn btn-start" id="btn-start" onclick="startScraper()">Start Scraper</button>
+      <button class="btn btn-stop" id="btn-stop" onclick="stopScraper()" disabled>Stop</button>
+      <button class="btn btn-resume" id="btn-resume" onclick="resumeScraper()">Resume</button>
+    </div>
+  </div>
+
+  <!-- Log + Leads -->
+  <div class="two-col gap-top">
+    <div class="card">
+      <div class="section-title">Activity Log</div>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Recent Leads</div>
+      <div class="search-row">
+        <input type="text" placeholder="Search leads…" id="lead-search" oninput="filterLeads()">
+        <button class="btn btn-resume" onclick="loadLeads()" style="white-space:nowrap">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Brand</th>
+              <th>Type</th>
+              <th>Score</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="leads-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Email Builder -->
+  <div class="card gap-top">
+    <div class="section-title">Email Template Builder</div>
+    <div class="merge-tags">
+      <span class="mtag" onclick="insertTag('{{firstName}}')">{{firstName}}</span>
+      <span class="mtag" onclick="insertTag('{{company}}')">{{company}}</span>
+      <span class="mtag" onclick="insertTag('{{brandType}}')">{{brandType}}</span>
+      <span class="mtag" onclick="insertTag('{{country}}')">{{country}}</span>
+      <span class="mtag" onclick="insertTag('{{senderName}}')">{{senderName}}</span>
+    </div>
+    <div class="tpl-grid">
+      <div>
+        <label>Sender Name</label>
+        <input type="text" id="tpl-from-name" placeholder="Brand Outreach">
+      </div>
+      <div>
+        <label>From Email (verified)</label>
+        <input type="email" id="tpl-from-email" placeholder="you@yourdomain.com">
+      </div>
+      <div>
+        <label>Reply-To</label>
+        <input type="email" id="tpl-reply-to" placeholder="replies@yourdomain.com">
+      </div>
+      <div>
+        <label>Subject</label>
+        <input type="text" id="tpl-subject" placeholder="Quick question about {{company}}">
+      </div>
+    </div>
+    <div class="tpl-row">
+      <label>Body</label>
+      <textarea id="tpl-body" rows="8" placeholder="Hi {{firstName}},&#10;&#10;..."></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn-save" onclick="saveTemplate()">Save Template</button>
+      <button class="btn-preview" onclick="previewTemplate()">Preview</button>
+    </div>
+  </div>
+
+  <!-- Bulk Send -->
+  <div class="card gap-top">
+    <div class="section-title">Bulk Send</div>
+    <div class="send-grid">
+      <div>
+        <label>Delay Min (ms)</label>
+        <input type="number" id="send-delay-min" value="4000" min="1000">
+      </div>
+      <div>
+        <label>Delay Max (ms)</label>
+        <input type="number" id="send-delay-max" value="9000" min="1000">
+      </div>
+    </div>
+    <div class="ctrl-row">
+      <button class="btn btn-start" id="btn-send" onclick="startSend()">Send to All Leads</button>
+      <button class="btn btn-stop" id="btn-send-stop" onclick="stopSend()" disabled>Stop Sending</button>
+      <button class="btn btn-resume" onclick="clearSentHistory()">Clear Sent History</button>
+    </div>
+    <div class="send-prog-wrap hidden" id="send-prog-wrap">
+      <div class="send-stats">
+        <span>Sent: <span class="send-stat-val" id="s-sent">0</span></span>
+        <span>Failed: <span class="send-stat-val" id="s-failed">0</span></span>
+        <span>Total: <span class="send-stat-val" id="s-total">0</span></span>
+        <span>Current: <span class="send-stat-val" id="s-current">—</span></span>
+      </div>
+      <div class="send-prog-bg"><div class="send-prog-fill" id="send-prog-fill" style="width:0%"></div></div>
+    </div>
+    <div class="sent-hist gap-top">
+      <div class="sent-count" id="sent-count">Sent history: <strong>0</strong> emails</div>
+    </div>
+  </div>
+</main>
+
+<!-- Preview Modal -->
+<div class="modal-bg" id="preview-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePreview()">✕</button>
+    <h3>Email Preview</h3>
+    <div class="preview-body" id="preview-body"></div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────
+let allLeads = [];
+let evtSource = null;
+let sendEvtSource = null;
+
+// ── Init ────────────────────────────────────────────────────────────────
+async function init() {
+  await loadOptions();
+  await loadTemplate();
+  await loadLeads();
+  await loadSentCount();
+  await restoreLastSettings();
+  connectSSE();
+}
+
+async function loadOptions() {
+  try {
+    const r = await fetch('/api/options').then(r => r.json());
+    const btSel = document.getElementById('sel-brand-type');
+    const ctSel = document.getElementById('sel-country');
+    (r.brandTypes || []).forEach(b => {
+      const o = document.createElement('option'); o.value = b; o.textContent = b; btSel.appendChild(o);
+    });
+    (r.countries || []).forEach(c => {
+      const o = document.createElement('option'); o.value = c; o.textContent = c; ctSel.appendChild(o);
+    });
+  } catch {}
+}
+
+async function restoreLastSettings() {
+  try {
+    const s = await fetch('/api/last-settings').then(r => r.json());
+    if (!s) return;
+    if (s.target) document.getElementById('sel-target').value = s.target;
+    if (s.brandType) document.getElementById('sel-brand-type').value = s.brandType;
+    if (s.country) document.getElementById('sel-country').value = s.country;
+    if (s.sources) {
+      document.querySelectorAll('.chip[data-src]').forEach(c => {
+        c.classList.toggle('active', s.sources.includes(c.dataset.src));
+      });
+    }
+  } catch {}
+}
+
+// ── SSE ─────────────────────────────────────────────────────────────────
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/api/events');
+  evtSource.addEventListener('progress', e => updateProgress(JSON.parse(e.data)));
+  evtSource.addEventListener('lead', e => addLeadRow(JSON.parse(e.data)));
+  evtSource.addEventListener('log', e => appendLog(JSON.parse(e.data)));
+  evtSource.addEventListener('done', e => onScraperDone(JSON.parse(e.data)));
+}
+
+// ── Progress ─────────────────────────────────────────────────────────────
+function updateProgress(s) {
+  animNum('stat-leads', s.leadCount || 0);
+  animNum('stat-personal', s.personalCount || 0);
+  animNum('stat-generic', s.genericCount || 0);
+  animNum('stat-domains', s.domainsScraped || 0);
+
+  const pct = s.target ? Math.min(100, ((s.leadCount || 0) / s.target) * 100) : 0;
+  document.getElementById('prog-bar').style.width = pct + '%';
+
+  const phaseMap = {
+    idle: 'Idle', initializing: 'Initializing',
+    phase1: 'Phase 1 — Instagram', phase2: 'Phase 2 — Facebook',
+    phase3: 'Phase 3 — DuckDuckGo', phase4: 'Phase 4 — Bing',
+    phase5: 'Phase 5 — Scraping Sites',
+    complete: 'Complete', aborted: 'Stopped'
+  };
+  document.getElementById('phase-badge').textContent = phaseMap[s.phase] || s.phase || 'Idle';
+
+  const running = s.running;
+  document.getElementById('btn-start').disabled = running;
+  document.getElementById('btn-stop').disabled = !running;
+}
+
+function onScraperDone(s) {
+  appendLog({ time: new Date().toISOString(), message: `Done — ${s.leadCount} leads found`, type: 'success' });
+  loadLeads();
+}
+
+// ── Log ──────────────────────────────────────────────────────────────────
+function appendLog(entry) {
+  const log = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  const ts = new Date(entry.time).toLocaleTimeString();
+  div.innerHTML = `<span class="ts">${ts}</span><span class="log-${entry.type || 'info'}">${esc(entry.message)}</span>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Leads table ──────────────────────────────────────────────────────────
+async function loadLeads() {
+  try {
+    const r = await fetch('/api/leads').then(r => r.json());
+    allLeads = r.leads || [];
+    renderLeads(allLeads);
+  } catch {}
+}
+
+function renderLeads(leads) {
+  const tbody = document.getElementById('leads-tbody');
+  tbody.innerHTML = '';
+  leads.slice(0, 200).forEach(l => addLeadRow(l, false));
+}
+
+function addLeadRow(lead, prepend = true) {
+  if (prepend) {
+    const existing = allLeads.find(l => l.email === lead.email);
+    if (!existing) allLeads.unshift(lead);
+  }
+  const tbody = document.getElementById('leads-tbody');
+  const tr = document.createElement('tr');
+  const score = parseInt(lead.qualityScore) || 0;
+  const pips = Array.from({length:5}, (_,i) => `<div class="pip${i<score?' on':''}"></div>`).join('');
+  tr.innerHTML = `
+    <td style="font-family:monospace;font-size:11.5px">${esc(lead.email)}</td>
+    <td>${esc(lead.companyName || lead.website || '')}</td>
+    <td><span class="badge badge-${lead.emailType === 'personal' ? 'personal' : 'generic'}">${lead.emailType || 'generic'}</span></td>
+    <td><div class="pips">${pips}</div></td>
+    <td><span class="src-chip">${esc(lead.source || '')}</span></td>`;
+  if (prepend) tbody.prepend(tr); else tbody.appendChild(tr);
+}
+
+function filterLeads() {
+  const q = document.getElementById('lead-search').value.toLowerCase();
+  const filtered = q ? allLeads.filter(l =>
+    (l.email||'').toLowerCase().includes(q) ||
+    (l.companyName||'').toLowerCase().includes(q) ||
+    (l.source||'').toLowerCase().includes(q)
+  ) : allLeads;
+  renderLeads(filtered);
+}
+
+// ── Scraper controls ─────────────────────────────────────────────────────
+function getSources() {
+  return [...document.querySelectorAll('.chip.active[data-src]')].map(c => c.dataset.src);
+}
+
+async function startScraper() {
+  await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target: parseInt(document.getElementById('sel-target').value),
+      brandType: document.getElementById('sel-brand-type').value || null,
+      country: document.getElementById('sel-country').value || null,
+      sources: getSources(),
+      resume: false
+    })
+  });
+  appendLog({time:new Date().toISOString(), message:'Scraper started', type:'info'});
+}
+
+async function stopScraper() {
+  await fetch('/api/stop', {method:'POST'});
+}
+
+async function resumeScraper() {
+  await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      target: parseInt(document.getElementById('sel-target').value),
+      brandType: document.getElementById('sel-brand-type').value || null,
+      country: document.getElementById('sel-country').value || null,
+      sources: getSources(),
+      resume: true
+    })
+  });
+  appendLog({time:new Date().toISOString(), message:'Resuming scraper…', type:'info'});
+}
+
+function downloadCSV() {
+  window.location.href = '/api/download';
+}
+
+// ── Source chips ─────────────────────────────────────────────────────────
+document.querySelectorAll('.chip[data-src]').forEach(c => {
+  c.addEventListener('click', () => c.classList.toggle('active'));
+});
+
+// ── Template ─────────────────────────────────────────────────────────────
+async function loadTemplate() {
+  try {
+    const t = await fetch('/api/template').then(r => r.json());
+    document.getElementById('tpl-from-name').value = t.fromName || '';
+    document.getElementById('tpl-from-email').value = t.fromEmail || '';
+    document.getElementById('tpl-reply-to').value = t.replyTo || '';
+    document.getElementById('tpl-subject').value = t.subject || '';
+    document.getElementById('tpl-body').value = t.body || '';
+  } catch {}
+}
+
+async function saveTemplate() {
+  await fetch('/api/template', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      fromName:  document.getElementById('tpl-from-name').value,
+      fromEmail: document.getElementById('tpl-from-email').value,
+      replyTo:   document.getElementById('tpl-reply-to').value,
+      subject:   document.getElementById('tpl-subject').value,
+      body:      document.getElementById('tpl-body').value
+    })
+  });
+  appendLog({time:new Date().toISOString(), message:'Template saved', type:'success'});
+}
+
+function previewTemplate() {
+  const body = document.getElementById('tpl-body').value
+    .replace(/\{\{firstName\}\}/g, 'Alex')
+    .replace(/\{\{company\}\}/g, 'Example Brand')
+    .replace(/\{\{brandType\}\}/g, document.getElementById('sel-brand-type').value || 'Streetwear')
+    .replace(/\{\{country\}\}/g, document.getElementById('sel-country').value || 'Australia')
+    .replace(/\{\{senderName\}\}/g, document.getElementById('tpl-from-name').value || 'Brand Outreach');
+  document.getElementById('preview-body').textContent = body;
+  document.getElementById('preview-modal').classList.add('open');
+}
+
+function closePreview() {
+  document.getElementById('preview-modal').classList.remove('open');
+}
+
+function insertTag(tag) {
+  const el = document.getElementById('tpl-body');
+  const start = el.selectionStart, end = el.selectionEnd;
+  el.value = el.value.slice(0, start) + tag + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + tag.length;
+  el.focus();
+}
+
+// ── Send ─────────────────────────────────────────────────────────────────
+async function startSend() {
+  if (!allLeads.length) { alert('No leads loaded. Run the scraper first.'); return; }
+  const r = await fetch('/api/send/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      leads: allLeads,
+      delayMin: parseInt(document.getElementById('send-delay-min').value) || 4000,
+      delayMax: parseInt(document.getElementById('send-delay-max').value) || 9000
+    })
+  }).then(r => r.json());
+
+  if (r.error) { alert(r.error); return; }
+  appendLog({time:new Date().toISOString(), message:`Send started — ${r.queued} queued, ${r.alreadySent} skipped`, type:'info'});
+  document.getElementById('send-prog-wrap').classList.remove('hidden');
+  document.getElementById('btn-send').disabled = true;
+  document.getElementById('btn-send-stop').disabled = false;
+  connectSendSSE();
+}
+
+async function stopSend() {
+  await fetch('/api/send/stop', {method:'POST'});
+}
+
+async function clearSentHistory() {
+  if (!confirm('Clear all sent email history?')) return;
+  await fetch('/api/sent', {method:'DELETE'});
+  loadSentCount();
+  appendLog({time:new Date().toISOString(), message:'Sent history cleared', type:'warn'});
+}
+
+async function loadSentCount() {
+  try {
+    const r = await fetch('/api/sent').then(r => r.json());
+    document.getElementById('sent-count').innerHTML = `Sent history: <strong>${r.count}</strong> emails`;
+  } catch {}
+}
+
+function connectSendSSE() {
+  if (sendEvtSource) sendEvtSource.close();
+  sendEvtSource = new EventSource('/api/send/events');
+  sendEvtSource.addEventListener('send_progress', e => {
+    const d = JSON.parse(e.data);
+    document.getElementById('s-sent').textContent = d.sent;
+    document.getElementById('s-failed').textContent = d.failed;
+    document.getElementById('s-total').textContent = d.total;
+    document.getElementById('s-current').textContent = d.current || '—';
+    const pct = d.total ? (d.sent / d.total) * 100 : 0;
+    document.getElementById('send-prog-fill').style.width = pct + '%';
+  });
+  sendEvtSource.addEventListener('send_done', e => {
+    const d = JSON.parse(e.data);
+    appendLog({time:new Date().toISOString(), message:`Send complete — ${d.sent} sent, ${d.failed} failed`, type:'success'});
+    document.getElementById('btn-send').disabled = false;
+    document.getElementById('btn-send-stop').disabled = true;
+    loadSentCount();
+    sendEvtSource.close();
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function animNum(id, target) {
+  const el = document.getElementById(id);
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const step = Math.ceil(Math.abs(target - current) / 12);
+  const interval = setInterval(() => {
+    const v = parseInt(el.textContent) || 0;
+    if (v === target) { clearInterval(interval); return; }
+    el.textContent = v < target ? Math.min(v + step, target) : Math.max(v - step, target);
+  }, 40);
+}
+
+document.getElementById('preview-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePreview();
+});
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "Brand Outreach",
+  "short_name": "Brand Outreach",
+  "description": "Clothing brand email scraper and outreach tool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00d4d4",
+  "icons": []
+}
