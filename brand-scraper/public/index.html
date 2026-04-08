@@ -270,6 +270,21 @@ textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
   <!-- Bulk Send -->
   <div class="card gap-top">
     <div class="section-title">Bulk Send</div>
+    <!-- Gmail credentials -->
+    <div class="send-grid" style="margin-bottom:14px">
+      <div>
+        <label>Gmail Address</label>
+        <input type="email" id="gmail-user" placeholder="you@gmail.com">
+      </div>
+      <div>
+        <label>App Password <span style="color:var(--dim);font-size:10px;text-transform:none;letter-spacing:0">(Google Account → Security → App Passwords)</span></label>
+        <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx">
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <button class="btn-save" onclick="saveGmailCreds()" style="font-size:12px;padding:7px 14px">Save Gmail Credentials</button>
+      <span id="gmail-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+    </div>
     <div class="send-grid">
       <div>
         <label>Delay Min (ms)</label>
@@ -322,6 +337,7 @@ async function init() {
   await loadLeads();
   await loadSentCount();
   await restoreLastSettings();
+  await loadGmailCredsUI();
   connectSSE();
 }
 
@@ -543,6 +559,34 @@ function insertTag(tag) {
   el.value = el.value.slice(0, start) + tag + el.value.slice(end);
   el.selectionStart = el.selectionEnd = start + tag.length;
   el.focus();
+}
+
+// ── Gmail credentials ─────────────────────────────────────────────────────
+async function loadGmailCredsUI() {
+  try {
+    const r = await fetch('/api/gmail-creds').then(r => r.json());
+    if (r.configured) {
+      document.getElementById('gmail-user').value = r.gmailUser || '';
+      document.getElementById('gmail-status').textContent = 'Configured';
+      document.getElementById('gmail-status').style.color = 'var(--green)';
+    }
+  } catch {}
+}
+
+async function saveGmailCreds() {
+  const gmailUser = document.getElementById('gmail-user').value.trim();
+  const gmailAppPassword = document.getElementById('gmail-pass').value.trim();
+  if (!gmailUser || !gmailAppPassword) { alert('Enter both your Gmail address and App Password.'); return; }
+  const r = await fetch('/api/gmail-creds', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ gmailUser, gmailAppPassword })
+  }).then(r => r.json());
+  if (r.ok) {
+    document.getElementById('gmail-status').textContent = 'Saved';
+    document.getElementById('gmail-status').style.color = 'var(--green)';
+    document.getElementById('gmail-pass').value = '';
+  }
 }
 
 // ── Send ─────────────────────────────────────────────────────────────────

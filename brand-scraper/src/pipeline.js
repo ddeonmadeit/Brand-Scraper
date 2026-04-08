@@ -195,6 +195,12 @@ class ScraperPipeline extends EventEmitter {
 
       const { qualityScore, emailType } = scoreLead({ ...r, website });
 
+      // Drop low-quality leads below the minimum threshold
+      if (qualityScore < config.MIN_QUALITY_SCORE) {
+        this.log(`Skipped low-quality email: ${r.email} (score ${qualityScore})`, 'info');
+        continue;
+      }
+
       const lead = {
         email: r.email,
         ownerName: r.ownerName || brand.ownerName || '',

@@ -6,7 +6,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const csvParser = require('csv-parser');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const { ScraperPipeline, brandTypes, countries } = require('./src/pipeline');
 const config = require('./src/config');
 
@@ -222,6 +222,43 @@ app.delete('/api/sent', (req, res) => {
 // Bulk send (SSE stream)
 // ═══════════════════════════════════════════════════════════════════════
 
+// ── Build a Gmail transporter from env or saved credentials ────────────
+function createTransporter(gmailUser, gmailAppPassword) {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: gmailUser, pass: gmailAppPassword }
+  });
+}
+
+// ── Gmail credentials route (save to output dir, never committed) ────────
+const GMAIL_CREDS_PATH = path.join(config.OUTPUT_DIR, 'gmail-creds.json');
+
+function loadGmailCreds() {
+  // Prefer env vars (Railway), fall back to saved file (local dev)
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    return { gmailUser: process.env.GMAIL_USER, gmailAppPassword: process.env.GMAIL_APP_PASSWORD };
+  }
+  try { return JSON.parse(fs.readFileSync(GMAIL_CREDS_PATH, 'utf8')); }
+  catch { return null; }
+}
+
+function saveGmailCreds(gmailUser, gmailAppPassword) {
+  ensureOutputDir();
+  fs.writeFileSync(GMAIL_CREDS_PATH, JSON.stringify({ gmailUser, gmailAppPassword }));
+}
+
+app.get('/api/gmail-creds', (req, res) => {
+  const creds = loadGmailCreds();
+  res.json({ gmailUser: creds ? creds.gmailUser : '', configured: !!creds });
+});
+
+app.post('/api/gmail-creds', (req, res) => {
+  const { gmailUser, gmailAppPassword } = req.body;
+  if (!gmailUser || !gmailAppPassword) return res.status(400).json({ error: 'Gmail address and App Password required' });
+  saveGmailCreds(gmailUser, gmailAppPassword);
+  res.json({ ok: true });
+});
+
 app.post('/api/send/start', async (req, res) => {
   if (sendJob && sendJob.running) return res.status(409).json({ error: 'A send job is already running' });
 
@@ -229,10 +266,13 @@ app.post('/api/send/start', async (req, res) => {
   if (!Array.isArray(leads) || leads.length === 0) return res.status(400).json({ error: 'No leads provided' });
 
   const tpl = loadTemplate();
-  if (!tpl.fromEmail) return res.status(400).json({ error: 'Set a verified From email in the template first' });
-  if (!process.env.RESEND_API_KEY) return res.status(400).json({ error: 'RESEND_API_KEY environment variable is not set' });
+  if (!tpl.fromEmail) return res.status(400).json({ error: 'Set a From email in the template first' });
 
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const creds = loadGmailCreds();
+  if (!creds) return res.status(400).json({ error: 'Gmail credentials not configured. Enter your Gmail address and App Password in the Send section.' });
+
+  const transporter = createTransporter(creds.gmailUser, creds.gmailAppPassword);
+
   const sentSet = loadSentEmails();
   const queue = leads.filter(l => l.email && !sentSet.has(l.email.toLowerCase()));
 
@@ -258,55 +298,39 @@ app.post('/api/send/start', async (req, res) => {
         const htmlParas = bodyText
           .split(/\n{2,}/)
           .map(para => `<p style="margin:0 0 18px;line-height:1.7">${para.trim().replace(/\n/g, '<br>')}</p>`)
-          .join('\n ');
+          .join('\n');
 
         const bodyHtml = `<!DOCTYPE html>
 <html lang="en">
-<head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width,initial-scale=1">
- <title>${subject}</title>
-</head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
- <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
- <tr><td align="center">
- <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
- <tr><td style="padding:32px 40px 8px">
- <div style="font-size:15px;color:#1a1a1a">
- ${htmlParas}
- </div>
- </td></tr>
- <tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
- <p style="margin:0;font-size:12px;color:#999;line-height:1.6">
- You are receiving this email because your brand was identified as a potential fit.<br>
- To unsubscribe, <a href="mailto:${tpl.fromEmail}?subject=Unsubscribe%20${encodeURIComponent(lead.email)}" style="color:#999">click here</a> or reply with "Unsubscribe".
- </p>
- </td></tr>
- </table>
- </td></tr>
- </table>
-</body>
-</html>`;
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="padding:32px 40px 8px"><div style="font-size:15px;color:#1a1a1a">${htmlParas}</div></td></tr>
+<tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
+<p style="margin:0;font-size:12px;color:#999;line-height:1.6">
+You are receiving this email because your brand was identified as a potential fit.<br>
+To unsubscribe, reply with "Unsubscribe" or <a href="mailto:${tpl.fromEmail}?subject=Unsubscribe" style="color:#999">click here</a>.
+</p></td></tr>
+</table></td></tr></table>
+</body></html>`;
 
-        const toAddress = lead.ownerName ? `${lead.ownerName} <${lead.email}>` : lead.email;
+        const toAddress = lead.ownerName ? `"${lead.ownerName}" <${lead.email}>` : lead.email;
 
-        const payload = {
-          from: `${tpl.fromName} <${tpl.fromEmail}>`,
-          to: [toAddress],
+        await transporter.sendMail({
+          from: `"${tpl.fromName}" <${creds.gmailUser}>`,
+          to: toAddress,
+          replyTo: tpl.replyTo || tpl.fromEmail || creds.gmailUser,
           subject,
+          text: bodyText + `\n\n---\nTo unsubscribe reply "Unsubscribe".`,
           html: bodyHtml,
-          text: bodyText + `\n\n---\nYou received this because your brand was identified as a potential fit.\nTo unsubscribe reply "Unsubscribe" or email ${tpl.fromEmail}`,
           headers: {
-            'X-Entity-Ref-ID': `brand-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            'List-Unsubscribe': `<mailto:${tpl.fromEmail}?subject=Unsubscribe>`,
+            'List-Unsubscribe': `<mailto:${creds.gmailUser}?subject=Unsubscribe>`,
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
             'Precedence': 'bulk'
           }
-        };
-
-        if (tpl.replyTo) payload.reply_to = tpl.replyTo;
-
-        await resend.emails.send(payload);
+        });
 
         sentSet.add(lead.email.toLowerCase());
         saveSentEmails(sentSet);

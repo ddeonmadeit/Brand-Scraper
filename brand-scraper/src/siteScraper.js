@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const config = require('./config');
 const { ProxyRotator } = require('./proxyRotator');
-const { isValidEmail } = require('./qualityScorer');
+const { isValidEmail, emailBelongsToSite } = require('./qualityScorer');
 
 const rotator = new ProxyRotator();
 
@@ -36,6 +36,16 @@ function extractEmailsFromHtml(html) {
     if (isValidEmail(clean)) emails.push(clean);
   }
   return [...new Set(emails)];
+}
+
+/**
+ * Same as above but additionally enforces that the email domain
+ * belongs to the scraped website — filters out any third-party
+ * emails (media mentions, embedded widgets, etc.) on the page.
+ */
+function extractBrandEmailsFromHtml(html, websiteUrl) {
+  const all = extractEmailsFromHtml(html);
+  return all.filter(email => emailBelongsToSite(email, websiteUrl));
 }
 
 function extractOwnerName(html, $) {
@@ -78,7 +88,7 @@ async function scrapeSite(websiteUrl) {
       try {
         const html = await fetchWithRetry(url, 1, 10000);
         const $ = cheerio.load(html);
-        const emails = extractEmailsFromHtml(html);
+        const emails = extractBrandEmailsFromHtml(html, baseUrl);
         const ownerName = extractOwnerName(html, $);
 
         for (const email of emails) {
@@ -110,4 +120,4 @@ function normaliseUrl(url) {
   }
 }
 
-module.exports = { scrapeSite, fetchWithRetry, delay };
+module.exports = { scrapeSite, fetchWithRetry, delay, extractBrandEmailsFromHtml };
