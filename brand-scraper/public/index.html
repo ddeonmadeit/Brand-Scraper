@@ -281,10 +281,19 @@ textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
         <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx">
       </div>
     </div>
-    <div style="margin-bottom:14px">
-      <button class="btn-save" onclick="saveGmailCreds()" style="font-size:12px;padding:7px 14px">Save Gmail Credentials</button>
-      <span id="gmail-status" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+    <div style="margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+      <button class="btn-save" onclick="saveGmailCreds()" style="font-size:12px;padding:7px 14px">Save Credentials</button>
+      <span id="gmail-status" style="font-size:12px;color:var(--muted)"></span>
     </div>
+    <!-- Test email -->
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px">
+      <div style="flex:1">
+        <label>Send Test Email To</label>
+        <input type="email" id="test-email-addr" placeholder="your@email.com">
+      </div>
+      <button class="btn-preview" id="btn-test-send" onclick="sendTestEmail()" style="white-space:nowrap;height:38px">Send Test</button>
+    </div>
+    <div id="test-email-result" style="font-size:12px;margin-bottom:6px"></div>
     <div class="send-grid">
       <div>
         <label>Delay Min (ms)</label>
@@ -590,6 +599,35 @@ async function saveGmailCreds() {
 }
 
 // ── Send ─────────────────────────────────────────────────────────────────
+async function sendTestEmail() {
+  const toEmail = document.getElementById('test-email-addr').value.trim();
+  if (!toEmail) { alert('Enter an email address to send the test to.'); return; }
+  const btn = document.getElementById('btn-test-send');
+  const result = document.getElementById('test-email-result');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  result.textContent = '';
+  try {
+    const r = await fetch('/api/send/test', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ toEmail })
+    }).then(r => r.json());
+    if (r.ok) {
+      result.textContent = `✓ ${r.message}`;
+      result.style.color = 'var(--green)';
+    } else {
+      result.textContent = `✗ ${r.error}`;
+      result.style.color = 'var(--red)';
+    }
+  } catch (e) {
+    result.textContent = `✗ ${e.message}`;
+    result.style.color = 'var(--red)';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Send Test';
+}
+
 async function startSend() {
   if (!allLeads.length) { alert('No leads loaded. Run the scraper first.'); return; }
   const r = await fetch('/api/send/start', {

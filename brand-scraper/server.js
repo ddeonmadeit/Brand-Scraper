@@ -218,9 +218,66 @@ app.delete('/api/sent', (req, res) => {
   res.json({ ok: true });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// Bulk send (SSE stream)
-// ═══════════════════════════════════════════════════════════════════════
+// ── Test email ────────────────────────────────────────────────────────────
+app.post('/api/send/test', async (req, res) => {
+  const { toEmail } = req.body;
+  if (!toEmail) return res.status(400).json({ error: 'Provide a toEmail address' });
+
+  const creds = loadGmailCreds();
+  if (!creds) return res.status(400).json({ error: 'Gmail credentials not configured' });
+
+  const tpl = loadTemplate();
+
+  const sampleLead = {
+    email: toEmail,
+    ownerName: 'Alex Sample',
+    companyName: 'Sample Brand',
+    brandType: 'Streetwear',
+    country: 'Australia'
+  };
+
+  const subject  = applyMergeTags(tpl.subject || 'Test email from Brand Outreach', sampleLead, tpl);
+  const bodyText = applyMergeTags(tpl.body || 'Hi {{firstName}}, this is a test.', sampleLead, tpl);
+
+  const htmlParas = bodyText
+    .split(/\n{2,}/)
+    .map(para => `<p style="margin:0 0 18px;line-height:1.7">${para.trim().replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
+
+  const bodyHtml = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>${subject}</title></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="padding:8px 40px;background:#fff3cd;border-bottom:1px solid #ffc107">
+<p style="margin:0;font-size:12px;color:#856404">TEST EMAIL — sent via Brand Outreach</p>
+</td></tr>
+<tr><td style="padding:32px 40px 8px"><div style="font-size:15px;color:#1a1a1a">${htmlParas}</div></td></tr>
+<tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
+<p style="margin:0;font-size:12px;color:#999;line-height:1.6">This is a test email from Brand Outreach.</p>
+</td></tr>
+</table></td></tr></table>
+</body></html>`;
+
+  try {
+    const transporter = createTransporter(creds.gmailUser, creds.gmailAppPassword);
+    await transporter.sendMail({
+      from: `"${tpl.fromName || 'Brand Outreach'}" <${creds.gmailUser}>`,
+      to: toEmail,
+      replyTo: tpl.replyTo || creds.gmailUser,
+      subject: `[TEST] ${subject}`,
+      text: `[TEST EMAIL]\n\n${bodyText}`,
+      html: bodyHtml
+    });
+    res.json({ ok: true, message: `Test email sent to ${toEmail}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Bulk send (SSE stream) ───────────────────────────────────────────────
 
 // ── Build a Gmail transporter from env or saved credentials ────────────
 function createTransporter(gmailUser, gmailAppPassword) {
