@@ -245,89 +245,32 @@ app.post('/api/resend-key', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Gmail OAuth2 ──────────────────────────────────────────────────────────
-const GMAIL_TOKEN_PATH = path.join(config.OUTPUT_DIR, 'gmail-token.json');
-
-function getOAuth2Client() {
-  const clientId     = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const appUrl       = (process.env.APP_URL || '').replace(/\/$/, '');
-  if (!clientId || !clientSecret || !appUrl) return null;
-  return new google.auth.OAuth2(clientId, clientSecret, `${appUrl}/api/gmail/callback`);
-}
-
+// ── Gmail via env vars (GMAIL_USER + GMAIL_REFRESH_TOKEN) ─────────────────
 function loadGmailTokens() {
-  // Support pre-seeded refresh token via env (no browser flow needed)
   if (process.env.GMAIL_REFRESH_TOKEN && process.env.GMAIL_USER) {
-    return {
-      refresh_token: process.env.GMAIL_REFRESH_TOKEN,
-      _email: process.env.GMAIL_USER
-    };
+    return { refresh_token: process.env.GMAIL_REFRESH_TOKEN, _email: process.env.GMAIL_USER };
   }
-  try { return JSON.parse(fs.readFileSync(GMAIL_TOKEN_PATH, 'utf8')); }
-  catch { return null; }
+  return null;
 }
 
-function saveGmailTokens(tokens) {
-  ensureOutputDir();
-  const existing = loadGmailTokens() || {};
-  fs.writeFileSync(GMAIL_TOKEN_PATH, JSON.stringify({ ...existing, ...tokens }));
+function getOAuth2Client(tokens) {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    'http://localhost:3001/callback'
+  );
+  oauth2Client.setCredentials(tokens);
+  return oauth2Client;
 }
 
-// Start OAuth flow
-app.get('/api/gmail/auth', (req, res) => {
-  const oauth2Client = getOAuth2Client();
-  if (!oauth2Client) return res.status(400).json({ error: 'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and APP_URL in Railway env vars first.' });
-  const url = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/userinfo.email'],
-    prompt: 'consent'
-  });
-  res.redirect(url);
-});
-
-// OAuth callback
-app.get('/api/gmail/callback', async (req, res) => {
-  const { code, error } = req.query;
-  if (error) return res.redirect('/?gmail_error=' + encodeURIComponent(error));
-  try {
-    const oauth2Client = getOAuth2Client();
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    // Fetch the Gmail address so we can display it
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const { data } = await oauth2.userinfo.get();
-    saveGmailTokens({ ...tokens, _email: data.email });
-    res.redirect('/?gmail=connected');
-  } catch (err) {
-    res.redirect('/?gmail_error=' + encodeURIComponent(err.message));
-  }
-});
-
-// Status
 app.get('/api/gmail/status', (req, res) => {
   const tokens = loadGmailTokens();
-  if (!tokens) return res.json({ connected: false });
-  res.json({ connected: true, email: tokens._email || 'Connected' });
+  res.json(tokens ? { connected: true, email: tokens._email } : { connected: false });
 });
 
-// Disconnect
-app.delete('/api/gmail/disconnect', (req, res) => {
-  try { fs.unlinkSync(GMAIL_TOKEN_PATH); } catch {}
-  res.json({ ok: true });
-});
-
-// Send a message via Gmail API (returns true on success, throws on failure)
+// Send a message via Gmail API
 async function sendViaGmail(tokens, { fromName, toAddress, replyTo, subject, bodyText, bodyHtml }) {
-  const oauth2Client = getOAuth2Client();
-  if (!oauth2Client) throw new Error('Gmail OAuth not configured');
-  oauth2Client.setCredentials(tokens);
-
-  // Persist any auto-refreshed tokens
-  oauth2Client.on('tokens', newTokens => {
-    if (newTokens.refresh_token || newTokens.access_token) saveGmailTokens(newTokens);
-  });
-
+  const oauth2Client = getOAuth2Client(tokens);
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
   const boundary = `bo_${Date.now()}`;
   const from = fromName ? `"${fromName}" <${tokens._email}>` : tokens._email;
@@ -342,13 +285,11 @@ async function sendViaGmail(tokens, { fromName, toAddress, replyTo, subject, bod
     '',
     `--${boundary}`,
     'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: quoted-printable',
     '',
     bodyText,
     '',
     `--${boundary}`,
     'Content-Type: text/html; charset=UTF-8',
-    'Content-Transfer-Encoding: quoted-printable',
     '',
     bodyHtml,
     '',
