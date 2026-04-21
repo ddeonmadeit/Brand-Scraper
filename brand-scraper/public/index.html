@@ -188,8 +188,7 @@ textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
     </div>
     <div class="sources-label">Sources</div>
     <div class="chips">
-      <div class="chip active" data-src="instagram">Instagram</div>
-      <div class="chip active" data-src="facebook">Facebook</div>
+      <div class="chip active" data-src="google">Google</div>
       <div class="chip active" data-src="duckduckgo">DuckDuckGo</div>
       <div class="chip active" data-src="bing">Bing</div>
     </div>
@@ -270,20 +269,14 @@ textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
   <!-- Bulk Send -->
   <div class="card gap-top">
     <div class="section-title">Bulk Send</div>
-    <!-- Gmail credentials -->
-    <div class="send-grid" style="margin-bottom:14px">
-      <div>
-        <label>Gmail Address</label>
-        <input type="email" id="gmail-user" placeholder="you@gmail.com">
+    <!-- Resend API key -->
+    <div style="margin-bottom:14px">
+      <label>Resend API Key <span style="color:var(--dim);font-size:10px;text-transform:none;letter-spacing:0">Free at resend.com — works instantly, no domain needed for testing</span></label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="resend-key" placeholder="re_xxxxxxxxxxxxxxxxxxxx" style="flex:1">
+        <button class="btn-save" onclick="saveResendKey()" style="font-size:12px;padding:7px 14px;white-space:nowrap">Save Key</button>
+        <span id="resend-key-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
       </div>
-      <div>
-        <label>App Password <span style="color:var(--dim);font-size:10px;text-transform:none;letter-spacing:0">(Google Account → Security → App Passwords)</span></label>
-        <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx">
-      </div>
-    </div>
-    <div style="margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
-      <button class="btn-save" onclick="saveGmailCreds()" style="font-size:12px;padding:7px 14px">Save Credentials</button>
-      <span id="gmail-status" style="font-size:12px;color:var(--muted)"></span>
     </div>
     <!-- Test email -->
     <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px">
@@ -346,7 +339,7 @@ async function init() {
   await loadLeads();
   await loadSentCount();
   await restoreLastSettings();
-  await loadGmailCredsUI();
+  await loadResendKeyUI();
   connectSSE();
 }
 
@@ -401,9 +394,8 @@ function updateProgress(s) {
 
   const phaseMap = {
     idle: 'Idle', initializing: 'Initializing',
-    phase1: 'Phase 1 — Instagram', phase2: 'Phase 2 — Facebook',
-    phase3: 'Phase 3 — DuckDuckGo', phase4: 'Phase 4 — Bing',
-    phase5: 'Phase 5 — Scraping Sites',
+    phase1: 'Phase 1 — Google', phase2: 'Phase 2 — DuckDuckGo',
+    phase3: 'Phase 3 — Bing', phase4: 'Phase 4 — Scraping Sites',
     complete: 'Complete', aborted: 'Stopped'
   };
   document.getElementById('phase-badge').textContent = phaseMap[s.phase] || s.phase || 'Idle';
@@ -570,35 +562,33 @@ function insertTag(tag) {
   el.focus();
 }
 
-// ── Gmail credentials ─────────────────────────────────────────────────────
-async function loadGmailCredsUI() {
+// ── Resend API key ────────────────────────────────────────────────────────
+async function loadResendKeyUI() {
   try {
-    const r = await fetch('/api/gmail-creds').then(r => r.json());
+    const r = await fetch('/api/resend-key').then(r => r.json());
     if (r.configured) {
-      document.getElementById('gmail-user').value = r.gmailUser || '';
-      document.getElementById('gmail-status').textContent = 'Configured';
-      document.getElementById('gmail-status').style.color = 'var(--green)';
+      document.getElementById('resend-key-status').textContent = '✓ Configured';
+      document.getElementById('resend-key-status').style.color = 'var(--green)';
     }
   } catch {}
 }
 
-async function saveGmailCreds() {
-  const gmailUser = document.getElementById('gmail-user').value.trim();
-  const gmailAppPassword = document.getElementById('gmail-pass').value.trim();
-  if (!gmailUser || !gmailAppPassword) { alert('Enter both your Gmail address and App Password.'); return; }
-  const status = document.getElementById('gmail-status');
-  status.textContent = 'Verifying…';
+async function saveResendKey() {
+  const key = document.getElementById('resend-key').value.trim();
+  if (!key) { alert('Paste your Resend API key.'); return; }
+  const status = document.getElementById('resend-key-status');
+  status.textContent = 'Saving…';
   status.style.color = 'var(--muted)';
   try {
-    const r = await fetch('/api/gmail-creds', {
+    const r = await fetch('/api/resend-key', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ gmailUser, gmailAppPassword })
+      body: JSON.stringify({ key })
     }).then(r => r.json());
     if (r.ok) {
-      status.textContent = '✓ Connected';
+      status.textContent = '✓ Saved';
       status.style.color = 'var(--green)';
-      document.getElementById('gmail-pass').value = '';
+      document.getElementById('resend-key').value = '';
     } else {
       status.textContent = '✗ ' + r.error;
       status.style.color = 'var(--red)';

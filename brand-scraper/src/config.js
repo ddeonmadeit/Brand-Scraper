@@ -103,7 +103,11 @@ module.exports = {
     'head of design', 'designer', 'creative lead', 'managing director'
   ],
 
-  CONTACT_PATHS: ['/contact', '/about', '/team', '/contact-us', '/about-us', '/pages/contact'],
+  CONTACT_PATHS: [
+    '/pages/contact', '/pages/contact-us', '/pages/about', '/pages/about-us',
+    '/contact', '/contact-us', '/about', '/about-us', '/team', '/our-story',
+    '/pages/our-story', '/info/contact'
+  ],
 
   // User agents for rotation
   USER_AGENTS: [

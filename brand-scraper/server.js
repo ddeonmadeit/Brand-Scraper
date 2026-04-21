@@ -6,7 +6,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const csvParser = require('csv-parser');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const { ScraperPipeline, brandTypes, countries } = require('./src/pipeline');
 const config = require('./src/config');
 
@@ -218,13 +218,55 @@ app.delete('/api/sent', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Resend API key (env var preferred, saved file as fallback) ────────────
+const RESEND_KEY_PATH = path.join(config.OUTPUT_DIR, 'resend-key.json');
+
+function loadResendKey() {
+  if (process.env.RESEND_API_KEY) return process.env.RESEND_API_KEY;
+  try { return JSON.parse(fs.readFileSync(RESEND_KEY_PATH, 'utf8')).key; }
+  catch { return null; }
+}
+
+function saveResendKey(key) {
+  ensureOutputDir();
+  fs.writeFileSync(RESEND_KEY_PATH, JSON.stringify({ key }));
+}
+
+app.get('/api/resend-key', (req, res) => {
+  const key = loadResendKey();
+  res.json({ configured: !!key });
+});
+
+app.post('/api/resend-key', (req, res) => {
+  const { key } = req.body;
+  if (!key || !key.startsWith('re_')) return res.status(400).json({ error: 'Invalid Resend API key (should start with re_)' });
+  saveResendKey(key);
+  res.json({ ok: true });
+});
+
+function buildEmailHtml(subject, bodyText, replyEmail) {
+  const htmlParas = bodyText
+    .split(/\n{2,}/)
+    .map(p => `<p style="margin:0 0 18px;line-height:1.7">${p.trim().replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0"><tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:8px;overflow:hidden">
+<tr><td style="padding:32px 40px 8px"><div style="font-size:15px;color:#1a1a1a">${htmlParas}</div></td></tr>
+<tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
+<p style="margin:0;font-size:12px;color:#999;line-height:1.6">You received this because your brand was identified as a potential fit.<br>
+To unsubscribe reply "Unsubscribe" or <a href="mailto:${replyEmail}?subject=Unsubscribe" style="color:#999">click here</a>.</p>
+</td></tr></table></td></tr></table></body></html>`;
+}
+
 // ── Test email ────────────────────────────────────────────────────────────
 app.post('/api/send/test', async (req, res) => {
   const { toEmail } = req.body;
   if (!toEmail) return res.status(400).json({ error: 'Provide a toEmail address' });
 
-  const creds = loadGmailCreds();
-  if (!creds) return res.status(400).json({ error: 'Gmail credentials not configured' });
+  const apiKey = loadResendKey();
+  if (!apiKey) return res.status(400).json({ error: 'Resend API key not configured' });
 
   const tpl = loadTemplate();
 
@@ -238,38 +280,17 @@ app.post('/api/send/test', async (req, res) => {
 
   const subject  = applyMergeTags(tpl.subject || 'Test email from Brand Outreach', sampleLead, tpl);
   const bodyText = applyMergeTags(tpl.body || 'Hi {{firstName}}, this is a test.', sampleLead, tpl);
-
-  const htmlParas = bodyText
-    .split(/\n{2,}/)
-    .map(para => `<p style="margin:0 0 18px;line-height:1.7">${para.trim().replace(/\n/g, '<br>')}</p>`)
-    .join('\n');
-
-  const bodyHtml = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>${subject}</title></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
-<tr><td style="padding:8px 40px;background:#fff3cd;border-bottom:1px solid #ffc107">
-<p style="margin:0;font-size:12px;color:#856404">TEST EMAIL — sent via Brand Outreach</p>
-</td></tr>
-<tr><td style="padding:32px 40px 8px"><div style="font-size:15px;color:#1a1a1a">${htmlParas}</div></td></tr>
-<tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
-<p style="margin:0;font-size:12px;color:#999;line-height:1.6">This is a test email from Brand Outreach.</p>
-</td></tr>
-</table></td></tr></table>
-</body></html>`;
+  const replyEmail = tpl.replyTo || tpl.fromEmail || 'noreply@example.com';
 
   try {
-    const transporter = createTransporter(creds.gmailUser, creds.gmailAppPassword);
-    await transporter.sendMail({
-      from: `"${tpl.fromName || 'Brand Outreach'}" <${creds.gmailUser}>`,
-      to: toEmail,
-      replyTo: tpl.replyTo || creds.gmailUser,
+    const resend = new Resend(apiKey);
+    await resend.emails.send({
+      from: `${tpl.fromName || 'Brand Outreach'} <${tpl.fromEmail || 'onboarding@resend.dev'}>`,
+      to: [toEmail],
+      reply_to: replyEmail,
       subject: `[TEST] ${subject}`,
       text: `[TEST EMAIL]\n\n${bodyText}`,
-      html: bodyHtml
+      html: buildEmailHtml(subject, bodyText, replyEmail)
     });
     res.json({ ok: true, message: `Test email sent to ${toEmail}` });
   } catch (err) {
@@ -277,58 +298,7 @@ app.post('/api/send/test', async (req, res) => {
   }
 });
 
-// ── Bulk send (SSE stream) ───────────────────────────────────────────────
-
-// ── Build a Gmail transporter from env or saved credentials ────────────
-function createTransporter(gmailUser, gmailAppPassword) {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user: gmailUser, pass: gmailAppPassword },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000
-  });
-}
-
-// ── Gmail credentials route (save to output dir, never committed) ────────
-const GMAIL_CREDS_PATH = path.join(config.OUTPUT_DIR, 'gmail-creds.json');
-
-function loadGmailCreds() {
-  // Prefer env vars (Railway), fall back to saved file (local dev)
-  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-    return { gmailUser: process.env.GMAIL_USER, gmailAppPassword: process.env.GMAIL_APP_PASSWORD };
-  }
-  try { return JSON.parse(fs.readFileSync(GMAIL_CREDS_PATH, 'utf8')); }
-  catch { return null; }
-}
-
-function saveGmailCreds(gmailUser, gmailAppPassword) {
-  ensureOutputDir();
-  fs.writeFileSync(GMAIL_CREDS_PATH, JSON.stringify({ gmailUser, gmailAppPassword }));
-}
-
-app.get('/api/gmail-creds', (req, res) => {
-  const creds = loadGmailCreds();
-  res.json({ gmailUser: creds ? creds.gmailUser : '', configured: !!creds });
-});
-
-app.post('/api/gmail-creds', async (req, res) => {
-  const { gmailUser, gmailAppPassword } = req.body;
-  if (!gmailUser || !gmailAppPassword) return res.status(400).json({ error: 'Gmail address and App Password required' });
-
-  // Verify credentials work before saving
-  try {
-    const transporter = createTransporter(gmailUser, gmailAppPassword);
-    await transporter.verify();
-  } catch (err) {
-    return res.status(400).json({ error: `Gmail auth failed: ${err.message}` });
-  }
-
-  saveGmailCreds(gmailUser, gmailAppPassword);
-  res.json({ ok: true });
-});
+// ── Bulk send (SSE stream) ────────────────────────────────────────────────
 
 app.post('/api/send/start', async (req, res) => {
   if (sendJob && sendJob.running) return res.status(409).json({ error: 'A send job is already running' });
@@ -339,11 +309,10 @@ app.post('/api/send/start', async (req, res) => {
   const tpl = loadTemplate();
   if (!tpl.fromEmail) return res.status(400).json({ error: 'Set a From email in the template first' });
 
-  const creds = loadGmailCreds();
-  if (!creds) return res.status(400).json({ error: 'Gmail credentials not configured. Enter your Gmail address and App Password in the Send section.' });
+  const apiKey = loadResendKey();
+  if (!apiKey) return res.status(400).json({ error: 'Resend API key not configured. Add it in the Send section.' });
 
-  const transporter = createTransporter(creds.gmailUser, creds.gmailAppPassword);
-
+  const resend = new Resend(apiKey);
   const sentSet = loadSentEmails();
   const queue = leads.filter(l => l.email && !sentSet.has(l.email.toLowerCase()));
 
@@ -365,39 +334,19 @@ app.post('/api/send/start', async (req, res) => {
       try {
         const subject  = applyMergeTags(tpl.subject, lead, tpl);
         const bodyText = applyMergeTags(tpl.body, lead, tpl);
+        const replyEmail = tpl.replyTo || tpl.fromEmail;
+        const toAddress = lead.ownerName ? `${lead.ownerName} <${lead.email}>` : lead.email;
 
-        const htmlParas = bodyText
-          .split(/\n{2,}/)
-          .map(para => `<p style="margin:0 0 18px;line-height:1.7">${para.trim().replace(/\n/g, '<br>')}</p>`)
-          .join('\n');
-
-        const bodyHtml = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
-<tr><td style="padding:32px 40px 8px"><div style="font-size:15px;color:#1a1a1a">${htmlParas}</div></td></tr>
-<tr><td style="padding:16px 40px 32px;border-top:1px solid #f0f0f0">
-<p style="margin:0;font-size:12px;color:#999;line-height:1.6">
-You are receiving this email because your brand was identified as a potential fit.<br>
-To unsubscribe, reply with "Unsubscribe" or <a href="mailto:${tpl.fromEmail}?subject=Unsubscribe" style="color:#999">click here</a>.
-</p></td></tr>
-</table></td></tr></table>
-</body></html>`;
-
-        const toAddress = lead.ownerName ? `"${lead.ownerName}" <${lead.email}>` : lead.email;
-
-        await transporter.sendMail({
-          from: `"${tpl.fromName}" <${creds.gmailUser}>`,
-          to: toAddress,
-          replyTo: tpl.replyTo || tpl.fromEmail || creds.gmailUser,
+        await resend.emails.send({
+          from: `${tpl.fromName} <${tpl.fromEmail}>`,
+          to: [toAddress],
+          reply_to: replyEmail,
           subject,
           text: bodyText + `\n\n---\nTo unsubscribe reply "Unsubscribe".`,
-          html: bodyHtml,
+          html: buildEmailHtml(subject, bodyText, replyEmail),
           headers: {
-            'List-Unsubscribe': `<mailto:${creds.gmailUser}?subject=Unsubscribe>`,
+            'X-Entity-Ref-ID': `brand-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            'List-Unsubscribe': `<mailto:${replyEmail}?subject=Unsubscribe>`,
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
             'Precedence': 'bulk'
           }
@@ -406,31 +355,20 @@ To unsubscribe, reply with "Unsubscribe" or <a href="mailto:${tpl.fromEmail}?sub
         sentSet.add(lead.email.toLowerCase());
         saveSentEmails(sentSet);
         sendJob.sent++;
-
-        broadcastSend('send_progress', {
-          sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed,
-          current: lead.email, status: 'sent'
-        });
+        broadcastSend('send_progress', { sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed, current: lead.email, status: 'sent' });
 
       } catch (err) {
         sendJob.failed++;
-        broadcastSend('send_progress', {
-          sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed,
-          current: lead.email, status: 'failed', error: err.message
-        });
+        broadcastSend('send_progress', { sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed, current: lead.email, status: 'failed', error: err.message });
       }
 
       if (!sendJob.aborted && sendJob.sent + sendJob.failed < sendJob.total) {
-        const wait = delayMin + Math.random() * (delayMax - delayMin);
-        await delay(wait);
+        await delay(delayMin + Math.random() * (delayMax - delayMin));
       }
     }
 
     sendJob.running = false;
-    broadcastSend('send_done', {
-      sent: sendJob.sent, failed: sendJob.failed,
-      total: sendJob.total, aborted: sendJob.aborted
-    });
+    broadcastSend('send_done', { sent: sendJob.sent, failed: sendJob.failed, total: sendJob.total, aborted: sendJob.aborted });
   })();
 });
 

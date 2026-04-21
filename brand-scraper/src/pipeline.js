@@ -9,8 +9,7 @@ const { csvWriter, csvWriterFresh, CSV_PATH } = require('./csvWriter');
 const { Deduplicator } = require('./deduplicator');
 const { scoreLead, isValidEmail } = require('./qualityScorer');
 const { scrapeSite, delay } = require('./siteScraper');
-const { scrapeInstagram } = require('./scrapers/instagramSearch');
-const { scrapeFacebook } = require('./scrapers/facebookSearch');
+const { scrapeSearchGoogle } = require('./scrapers/googleSearch');
 const { scrapeSearchDuck } = require('./scrapers/duckSearch');
 const { scrapeSearchBing } = require('./scrapers/bingSearch');
 
@@ -54,7 +53,7 @@ const countries = [
 ];
 
 class ScraperPipeline extends EventEmitter {
-  constructor({ target = 500, resume = false, sources = ['instagram', 'facebook', 'duckduckgo', 'bing'], brandType = null, country = null, verbose = false }) {
+  constructor({ target = 500, resume = false, sources = ['google', 'duckduckgo', 'bing'], brandType = null, country = null, verbose = false }) {
     super();
     this.target = target;
     this.resume = resume;
@@ -244,70 +243,52 @@ class ScraperPipeline extends EventEmitter {
 
     const allBrands = [];
 
-    // ── Phase 1: Instagram discovery ─────────────────────────────────
-    if (!this.aborted && this.sources.includes('instagram')) {
+    // ── Phase 1: Google web search ───────────────────────────────────
+    if (!this.aborted && this.sources.includes('google')) {
       this.phase = 'phase1';
-      this.log('Phase 1: Discovering brands on Instagram…', 'info');
+      this.log('Phase 1: Searching Google for brand websites…', 'info');
       this.emitProgress();
-
       try {
-        const igBrands = await scrapeInstagram(brandType, country);
-        this.log(`Instagram: found ${igBrands.length} brand profiles`, 'info');
-        allBrands.push(...igBrands);
+        const brands = await scrapeSearchGoogle(brandType, country);
+        this.log(`Google: found ${brands.length} brand sites`, 'info');
+        allBrands.push(...brands);
       } catch (err) {
-        this.log(`Instagram search error: ${err.message}`, 'error');
+        this.log(`Google search error: ${err.message}`, 'error');
       }
     }
 
-    // ── Phase 2: Facebook discovery ───────────────────────────────────
-    if (!this.aborted && this.sources.includes('facebook')) {
-      this.phase = 'phase2';
-      this.log('Phase 2: Discovering brands on Facebook…', 'info');
-      this.emitProgress();
-
-      try {
-        const fbBrands = await scrapeFacebook(brandType, country);
-        this.log(`Facebook: found ${fbBrands.length} brand pages`, 'info');
-        allBrands.push(...fbBrands);
-      } catch (err) {
-        this.log(`Facebook search error: ${err.message}`, 'error');
-      }
-    }
-
-    // ── Phase 3: DuckDuckGo web search ────────────────────────────────
+    // ── Phase 2: DuckDuckGo web search ───────────────────────────────
     if (!this.aborted && this.leadCount < this.target && this.sources.includes('duckduckgo')) {
-      this.phase = 'phase3';
-      this.log('Phase 3: Searching DuckDuckGo for brand websites…', 'info');
+      this.phase = 'phase2';
+      this.log('Phase 2: Searching DuckDuckGo for brand websites…', 'info');
       this.emitProgress();
-
       try {
-        const ddgBrands = await scrapeSearchDuck(brandType, country);
-        this.log(`DuckDuckGo: found ${ddgBrands.length} brand sites`, 'info');
-        allBrands.push(...ddgBrands);
+        const brands = await scrapeSearchDuck(brandType, country);
+        this.log(`DuckDuckGo: found ${brands.length} brand sites`, 'info');
+        allBrands.push(...brands);
       } catch (err) {
         this.log(`DuckDuckGo search error: ${err.message}`, 'error');
       }
     }
 
-    // ── Phase 4: Bing web search ──────────────────────────────────────
+    // ── Phase 3: Bing web search ─────────────────────────────────────
     if (!this.aborted && this.leadCount < this.target && this.sources.includes('bing')) {
-      this.phase = 'phase4';
-      this.log('Phase 4: Searching Bing for brand websites…', 'info');
+      this.phase = 'phase3';
+      this.log('Phase 3: Searching Bing for brand websites…', 'info');
       this.emitProgress();
-
       try {
-        const bingBrands = await scrapeSearchBing(brandType, country);
-        this.log(`Bing: found ${bingBrands.length} brand sites`, 'info');
-        allBrands.push(...bingBrands);
+        const brands = await scrapeSearchBing(brandType, country);
+        this.log(`Bing: found ${brands.length} brand sites`, 'info');
+        allBrands.push(...brands);
       } catch (err) {
         this.log(`Bing search error: ${err.message}`, 'error');
       }
     }
 
-    // ── Phase 5: Scrape each brand website for emails ─────────────────
+    // ── Phase 4: Scrape each brand website for emails ─────────────────
     if (!this.aborted && allBrands.length > 0) {
-      this.phase = 'phase5';
-      this.log(`Phase 5: Scraping ${allBrands.length} brand websites for contact emails…`, 'info');
+      this.phase = 'phase4';
+      this.log(`Phase 4: Scraping ${allBrands.length} brand websites for contact emails…`, 'info');
       this.emitProgress();
 
       const limit = pLimit(config.SITE_CONCURRENCY);

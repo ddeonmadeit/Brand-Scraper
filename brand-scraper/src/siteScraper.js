@@ -28,46 +28,83 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function extractEmailsFromHtml(html) {
+/**
+ * Extract emails from mailto: href links — most reliable signal.
+ * Brands that hide emails from copy-paste still use mailto: links.
+ */
+function extractMailtoEmails($) {
   const emails = [];
-  const matches = html.match(EMAIL_REGEX) || [];
-  for (const m of matches) {
-    const clean = m.toLowerCase().trim();
-    if (isValidEmail(clean)) emails.push(clean);
-  }
-  return [...new Set(emails)];
+  $('a[href^="mailto:"]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    const email = href.replace(/^mailto:/i, '').split('?')[0].toLowerCase().trim();
+    if (email) emails.push(email);
+  });
+  return emails;
 }
 
 /**
- * Same as above but additionally enforces that the email domain
- * belongs to the scraped website — filters out any third-party
- * emails (media mentions, embedded widgets, etc.) on the page.
+ * Extract emails via regex from raw HTML text.
+ */
+function extractRegexEmails(html) {
+  const emails = [];
+  const matches = html.match(EMAIL_REGEX) || [];
+  for (const m of matches) {
+    emails.push(m.toLowerCase().trim());
+  }
+  return emails;
+}
+
+/**
+ * Extract emails from JSON-LD structured data.
+ */
+function extractJsonLdEmails(html) {
+  const emails = [];
+  const blocks = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const block of blocks) {
+    const inner = block.replace(/<script[^>]*>|<\/script>/gi, '');
+    try {
+      const json = JSON.parse(inner);
+      const text = JSON.stringify(json);
+      const matches = text.match(EMAIL_REGEX) || [];
+      emails.push(...matches.map(e => e.toLowerCase().trim()));
+    } catch {}
+  }
+  return emails;
+}
+
+/**
+ * Collect and deduplicate all emails from a page, preferring mailto: links.
+ * Filters to brand-owned domain emails only.
  */
 function extractBrandEmailsFromHtml(html, websiteUrl) {
-  const all = extractEmailsFromHtml(html);
-  return all.filter(email => emailBelongsToSite(email, websiteUrl));
+  const $ = cheerio.load(html);
+  const all = [
+    ...extractMailtoEmails($),
+    ...extractJsonLdEmails(html),
+    ...extractRegexEmails(html)
+  ];
+  const unique = [...new Set(all)];
+  return unique.filter(e => isValidEmail(e) && emailBelongsToSite(e, websiteUrl));
 }
 
 function extractOwnerName(html, $) {
-  const patterns = [
-    // Common founder/owner meta patterns
+  const candidates = [
     $('meta[name="author"]').attr('content'),
     $('[class*="founder"] [class*="name"]').first().text(),
     $('[class*="owner"] [class*="name"]').first().text(),
     $('[class*="team"] [class*="founder"]').first().text(),
+    $('[itemprop="name"]').first().text(),
   ];
-
-  for (const p of patterns) {
-    if (p && p.trim().length > 2 && p.trim().length < 60) {
-      return p.trim();
-    }
+  for (const p of candidates) {
+    const s = (p || '').trim();
+    if (s.length > 2 && s.length < 60 && /\s/.test(s)) return s;
   }
   return '';
 }
 
 /**
- * Scrape a brand's website for contact emails.
- * Returns array of { email, ownerName, website }
+ * Scrape a brand website for contact emails.
+ * Tries contact/about pages first (most likely to have email), then homepage.
  */
 async function scrapeSite(websiteUrl) {
   const results = [];
@@ -76,8 +113,8 @@ async function scrapeSite(websiteUrl) {
     const baseUrl = normaliseUrl(websiteUrl);
     if (!baseUrl) return results;
 
-    // Try contact/about pages first, then homepage
-    const paths = ['', ...config.CONTACT_PATHS];
+    // Contact pages first — homepage last as fallback
+    const paths = [...config.CONTACT_PATHS, ''];
     const visited = new Set();
 
     for (const p of paths) {
@@ -95,7 +132,7 @@ async function scrapeSite(websiteUrl) {
           results.push({ email, ownerName, website: baseUrl });
         }
 
-        if (results.length > 0) break; // Stop once we have emails
+        if (results.length > 0) break;
       } catch {
         // Try next path
       }
@@ -103,7 +140,7 @@ async function scrapeSite(websiteUrl) {
       await delay(config.SITE_DELAY_MIN + Math.random() * (config.SITE_DELAY_MAX - config.SITE_DELAY_MIN));
     }
   } catch {
-    // Silently skip failed sites
+    // Skip failed sites silently
   }
 
   return results;
