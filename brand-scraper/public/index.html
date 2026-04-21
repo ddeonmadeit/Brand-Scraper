@@ -269,12 +269,27 @@ textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,212,.1)}
   <!-- Bulk Send -->
   <div class="card gap-top">
     <div class="section-title">Bulk Send</div>
-    <!-- Resend API key -->
-    <div style="margin-bottom:14px">
-      <label>Resend API Key <span style="color:var(--dim);font-size:10px;text-transform:none;letter-spacing:0">Free at resend.com — works instantly, no domain needed for testing</span></label>
+    <!-- Send method -->
+    <div style="margin-bottom:16px;padding:14px;background:rgba(0,212,212,.05);border:1px solid rgba(0,212,212,.15);border-radius:10px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px">Email Method</div>
+      <!-- Gmail OAuth -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn btn-start" id="btn-connect-gmail" onclick="connectGmail()" style="padding:8px 16px;font-size:12px">Connect Gmail</button>
+        <button class="btn btn-stop" id="btn-disconnect-gmail" onclick="disconnectGmail()" style="padding:8px 16px;font-size:12px;display:none">Disconnect Gmail</button>
+        <span id="gmail-oauth-status" style="font-size:12px;color:var(--muted)">Not connected</span>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Sends directly from your Gmail account. One-time setup in Google Cloud Console required — see instructions below.</div>
+      <!-- Divider -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+        <span style="font-size:11px;color:var(--dim)">OR</span>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+      </div>
+      <!-- Resend -->
+      <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;display:block;margin-bottom:6px">Resend API Key <span style="color:var(--dim);text-transform:none;letter-spacing:0">(free at resend.com)</span></label>
       <div style="display:flex;gap:8px">
         <input type="password" id="resend-key" placeholder="re_xxxxxxxxxxxxxxxxxxxx" style="flex:1">
-        <button class="btn-save" onclick="saveResendKey()" style="font-size:12px;padding:7px 14px;white-space:nowrap">Save Key</button>
+        <button class="btn-save" onclick="saveResendKey()" style="font-size:12px;padding:7px 14px;white-space:nowrap">Save</button>
         <span id="resend-key-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
       </div>
     </div>
@@ -339,6 +354,7 @@ async function init() {
   await loadLeads();
   await loadSentCount();
   await restoreLastSettings();
+  await loadGmailOAuthStatus();
   await loadResendKeyUI();
   connectSSE();
 }
@@ -561,6 +577,49 @@ function insertTag(tag) {
   el.selectionStart = el.selectionEnd = start + tag.length;
   el.focus();
 }
+
+// ── Gmail OAuth ───────────────────────────────────────────────────────────
+async function loadGmailOAuthStatus() {
+  try {
+    const r = await fetch('/api/gmail/status').then(r => r.json());
+    const statusEl = document.getElementById('gmail-oauth-status');
+    const connectBtn = document.getElementById('btn-connect-gmail');
+    const disconnectBtn = document.getElementById('btn-disconnect-gmail');
+    if (r.connected) {
+      statusEl.textContent = '✓ Connected as ' + r.email;
+      statusEl.style.color = 'var(--green)';
+      connectBtn.style.display = 'none';
+      disconnectBtn.style.display = '';
+    } else {
+      statusEl.textContent = 'Not connected';
+      statusEl.style.color = 'var(--muted)';
+      connectBtn.style.display = '';
+      disconnectBtn.style.display = 'none';
+    }
+  } catch {}
+}
+
+function connectGmail() {
+  window.location.href = '/api/gmail/auth';
+}
+
+async function disconnectGmail() {
+  await fetch('/api/gmail/disconnect', { method: 'DELETE' });
+  loadGmailOAuthStatus();
+}
+
+// Check for OAuth redirect result
+(function checkGmailRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('gmail') === 'connected') {
+    history.replaceState({}, '', '/');
+    setTimeout(() => loadGmailOAuthStatus(), 500);
+  }
+  if (params.get('gmail_error')) {
+    alert('Gmail connection failed: ' + params.get('gmail_error'));
+    history.replaceState({}, '', '/');
+  }
+})();
 
 // ── Resend API key ────────────────────────────────────────────────────────
 async function loadResendKeyUI() {

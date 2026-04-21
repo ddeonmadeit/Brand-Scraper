@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const csvParser = require('csv-parser');
 const { Resend } = require('resend');
+const { google } = require('googleapis');
 const { ScraperPipeline, brandTypes, countries } = require('./src/pipeline');
 const config = require('./src/config');
 
@@ -244,6 +245,149 @@ app.post('/api/resend-key', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Gmail OAuth2 ──────────────────────────────────────────────────────────
+const GMAIL_TOKEN_PATH = path.join(config.OUTPUT_DIR, 'gmail-token.json');
+
+function getOAuth2Client() {
+  const clientId     = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const appUrl       = (process.env.APP_URL || '').replace(/\/$/, '');
+  if (!clientId || !clientSecret || !appUrl) return null;
+  return new google.auth.OAuth2(clientId, clientSecret, `${appUrl}/api/gmail/callback`);
+}
+
+function loadGmailTokens() {
+  // Support pre-seeded refresh token via env (no browser flow needed)
+  if (process.env.GMAIL_REFRESH_TOKEN && process.env.GMAIL_USER) {
+    return {
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN,
+      _email: process.env.GMAIL_USER
+    };
+  }
+  try { return JSON.parse(fs.readFileSync(GMAIL_TOKEN_PATH, 'utf8')); }
+  catch { return null; }
+}
+
+function saveGmailTokens(tokens) {
+  ensureOutputDir();
+  const existing = loadGmailTokens() || {};
+  fs.writeFileSync(GMAIL_TOKEN_PATH, JSON.stringify({ ...existing, ...tokens }));
+}
+
+// Start OAuth flow
+app.get('/api/gmail/auth', (req, res) => {
+  const oauth2Client = getOAuth2Client();
+  if (!oauth2Client) return res.status(400).json({ error: 'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and APP_URL in Railway env vars first.' });
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/userinfo.email'],
+    prompt: 'consent'
+  });
+  res.redirect(url);
+});
+
+// OAuth callback
+app.get('/api/gmail/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.redirect('/?gmail_error=' + encodeURIComponent(error));
+  try {
+    const oauth2Client = getOAuth2Client();
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    // Fetch the Gmail address so we can display it
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    saveGmailTokens({ ...tokens, _email: data.email });
+    res.redirect('/?gmail=connected');
+  } catch (err) {
+    res.redirect('/?gmail_error=' + encodeURIComponent(err.message));
+  }
+});
+
+// Status
+app.get('/api/gmail/status', (req, res) => {
+  const tokens = loadGmailTokens();
+  if (!tokens) return res.json({ connected: false });
+  res.json({ connected: true, email: tokens._email || 'Connected' });
+});
+
+// Disconnect
+app.delete('/api/gmail/disconnect', (req, res) => {
+  try { fs.unlinkSync(GMAIL_TOKEN_PATH); } catch {}
+  res.json({ ok: true });
+});
+
+// Send a message via Gmail API (returns true on success, throws on failure)
+async function sendViaGmail(tokens, { fromName, toAddress, replyTo, subject, bodyText, bodyHtml }) {
+  const oauth2Client = getOAuth2Client();
+  if (!oauth2Client) throw new Error('Gmail OAuth not configured');
+  oauth2Client.setCredentials(tokens);
+
+  // Persist any auto-refreshed tokens
+  oauth2Client.on('tokens', newTokens => {
+    if (newTokens.refresh_token || newTokens.access_token) saveGmailTokens(newTokens);
+  });
+
+  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+  const boundary = `bo_${Date.now()}`;
+  const from = fromName ? `"${fromName}" <${tokens._email}>` : tokens._email;
+
+  const mime = [
+    `From: ${from}`,
+    `To: ${toAddress}`,
+    replyTo ? `Reply-To: ${replyTo}` : '',
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    bodyText,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    bodyHtml,
+    '',
+    `--${boundary}--`
+  ].filter(l => l !== null).join('\r\n');
+
+  const encoded = Buffer.from(mime).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } });
+}
+
+// ── Unified send helper (Gmail preferred, Resend fallback) ───────────────
+async function sendEmail({ fromName, fromEmail, toAddress, replyTo, subject, bodyText, bodyHtml }) {
+  const gmailTokens = loadGmailTokens();
+  if (gmailTokens) {
+    await sendViaGmail(gmailTokens, { fromName, toAddress, replyTo, subject, bodyText, bodyHtml });
+    return 'gmail';
+  }
+  const apiKey = loadResendKey();
+  if (!apiKey) throw new Error('No email method configured. Connect Gmail or add a Resend API key.');
+  const resend = new Resend(apiKey);
+  const result = await resend.emails.send({
+    from: `${fromName} <${fromEmail}>`,
+    to: [toAddress],
+    reply_to: replyTo,
+    subject,
+    text: bodyText,
+    html: bodyHtml,
+    headers: {
+      'List-Unsubscribe': `<mailto:${replyTo}?subject=Unsubscribe>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      'Precedence': 'bulk'
+    }
+  });
+  if (result.error) throw new Error(result.error.message);
+  return 'resend';
+}
+
 function buildEmailHtml(subject, bodyText, replyEmail) {
   const htmlParas = bodyText
     .split(/\n{2,}/)
@@ -265,32 +409,21 @@ app.post('/api/send/test', async (req, res) => {
   const { toEmail } = req.body;
   if (!toEmail) return res.status(400).json({ error: 'Provide a toEmail address' });
 
-  const apiKey = loadResendKey();
-  if (!apiKey) return res.status(400).json({ error: 'Resend API key not configured' });
-
   const tpl = loadTemplate();
-
-  const sampleLead = {
-    email: toEmail,
-    ownerName: 'Alex Sample',
-    companyName: 'Sample Brand',
-    brandType: 'Streetwear',
-    country: 'Australia'
-  };
-
-  const subject  = applyMergeTags(tpl.subject || 'Test email from Brand Outreach', sampleLead, tpl);
-  const bodyText = applyMergeTags(tpl.body || 'Hi {{firstName}}, this is a test.', sampleLead, tpl);
-  const replyEmail = tpl.replyTo || tpl.fromEmail || 'noreply@example.com';
+  const sampleLead = { email: toEmail, ownerName: 'Alex Sample', companyName: 'Sample Brand', brandType: 'Streetwear', country: 'Australia' };
+  const subject   = applyMergeTags(tpl.subject || 'Test email from Brand Outreach', sampleLead, tpl);
+  const bodyText  = applyMergeTags(tpl.body    || 'Hi {{firstName}}, this is a test.', sampleLead, tpl);
+  const replyTo   = tpl.replyTo || tpl.fromEmail || '';
 
   try {
-    const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: `${tpl.fromName || 'Brand Outreach'} <${tpl.fromEmail || 'onboarding@resend.dev'}>`,
-      to: [toEmail],
-      reply_to: replyEmail,
+    await sendEmail({
+      fromName: tpl.fromName || 'Brand Outreach',
+      fromEmail: tpl.fromEmail || 'onboarding@resend.dev',
+      toAddress: toEmail,
+      replyTo,
       subject: `[TEST] ${subject}`,
-      text: `[TEST EMAIL]\n\n${bodyText}`,
-      html: buildEmailHtml(subject, bodyText, replyEmail)
+      bodyText: `[TEST EMAIL]\n\n${bodyText}`,
+      bodyHtml: buildEmailHtml(`[TEST] ${subject}`, bodyText, replyTo)
     });
     res.json({ ok: true, message: `Test email sent to ${toEmail}` });
   } catch (err) {
@@ -307,66 +440,48 @@ app.post('/api/send/start', async (req, res) => {
   if (!Array.isArray(leads) || leads.length === 0) return res.status(400).json({ error: 'No leads provided' });
 
   const tpl = loadTemplate();
-  if (!tpl.fromEmail) return res.status(400).json({ error: 'Set a From email in the template first' });
+  if (!tpl.fromEmail && !loadGmailTokens()) return res.status(400).json({ error: 'Connect Gmail or set a From email + Resend key first.' });
 
-  const apiKey = loadResendKey();
-  if (!apiKey) return res.status(400).json({ error: 'Resend API key not configured. Add it in the Send section.' });
+  // Validate at least one send method is ready
+  if (!loadGmailTokens() && !loadResendKey()) return res.status(400).json({ error: 'No email method configured. Connect Gmail or add a Resend API key.' });
 
-  const resend = new Resend(apiKey);
   const sentSet = loadSentEmails();
   const queue = leads.filter(l => l.email && !sentSet.has(l.email.toLowerCase()));
 
-  sendJob = {
-    running: true,
-    total: queue.length,
-    sent: 0,
-    skipped: leads.length - queue.length,
-    failed: 0,
-    aborted: false
-  };
-
+  sendJob = { running: true, total: queue.length, sent: 0, skipped: leads.length - queue.length, failed: 0, aborted: false };
   res.json({ ok: true, queued: queue.length, alreadySent: sendJob.skipped });
 
   (async () => {
     for (const lead of queue) {
       if (sendJob.aborted) break;
-
       try {
-        const subject  = applyMergeTags(tpl.subject, lead, tpl);
-        const bodyText = applyMergeTags(tpl.body, lead, tpl);
-        const replyEmail = tpl.replyTo || tpl.fromEmail;
+        const subject   = applyMergeTags(tpl.subject, lead, tpl);
+        const bodyText  = applyMergeTags(tpl.body, lead, tpl);
+        const replyTo   = tpl.replyTo || tpl.fromEmail || '';
         const toAddress = lead.ownerName ? `${lead.ownerName} <${lead.email}>` : lead.email;
 
-        await resend.emails.send({
-          from: `${tpl.fromName} <${tpl.fromEmail}>`,
-          to: [toAddress],
-          reply_to: replyEmail,
+        await sendEmail({
+          fromName: tpl.fromName,
+          fromEmail: tpl.fromEmail || 'onboarding@resend.dev',
+          toAddress,
+          replyTo,
           subject,
-          text: bodyText + `\n\n---\nTo unsubscribe reply "Unsubscribe".`,
-          html: buildEmailHtml(subject, bodyText, replyEmail),
-          headers: {
-            'X-Entity-Ref-ID': `brand-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-            'List-Unsubscribe': `<mailto:${replyEmail}?subject=Unsubscribe>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-            'Precedence': 'bulk'
-          }
+          bodyText: bodyText + `\n\n---\nTo unsubscribe reply "Unsubscribe".`,
+          bodyHtml: buildEmailHtml(subject, bodyText, replyTo)
         });
 
         sentSet.add(lead.email.toLowerCase());
         saveSentEmails(sentSet);
         sendJob.sent++;
         broadcastSend('send_progress', { sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed, current: lead.email, status: 'sent' });
-
       } catch (err) {
         sendJob.failed++;
         broadcastSend('send_progress', { sent: sendJob.sent, total: sendJob.total, failed: sendJob.failed, current: lead.email, status: 'failed', error: err.message });
       }
-
       if (!sendJob.aborted && sendJob.sent + sendJob.failed < sendJob.total) {
         await delay(delayMin + Math.random() * (delayMax - delayMin));
       }
     }
-
     sendJob.running = false;
     broadcastSend('send_done', { sent: sendJob.sent, failed: sendJob.failed, total: sendJob.total, aborted: sendJob.aborted });
   })();
