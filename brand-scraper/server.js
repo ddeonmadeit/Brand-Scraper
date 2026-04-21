@@ -282,8 +282,13 @@ app.post('/api/send/test', async (req, res) => {
 // ── Build a Gmail transporter from env or saved credentials ────────────
 function createTransporter(gmailUser, gmailAppPassword) {
   return nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: gmailUser, pass: gmailAppPassword }
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: gmailUser, pass: gmailAppPassword },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 }
 
@@ -309,9 +314,18 @@ app.get('/api/gmail-creds', (req, res) => {
   res.json({ gmailUser: creds ? creds.gmailUser : '', configured: !!creds });
 });
 
-app.post('/api/gmail-creds', (req, res) => {
+app.post('/api/gmail-creds', async (req, res) => {
   const { gmailUser, gmailAppPassword } = req.body;
   if (!gmailUser || !gmailAppPassword) return res.status(400).json({ error: 'Gmail address and App Password required' });
+
+  // Verify credentials work before saving
+  try {
+    const transporter = createTransporter(gmailUser, gmailAppPassword);
+    await transporter.verify();
+  } catch (err) {
+    return res.status(400).json({ error: `Gmail auth failed: ${err.message}` });
+  }
+
   saveGmailCreds(gmailUser, gmailAppPassword);
   res.json({ ok: true });
 });
