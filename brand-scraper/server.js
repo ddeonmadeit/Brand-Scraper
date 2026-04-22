@@ -245,23 +245,65 @@ app.post('/api/resend-key', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Gmail via env vars (GMAIL_USER + GMAIL_REFRESH_TOKEN) ─────────────────
+// ── Gmail OAuth ───────────────────────────────────────────────────────────
+const GMAIL_TOKEN_PATH = path.join(config.OUTPUT_DIR, 'gmail-token.json');
+
+function getRedirectUri() {
+  const appUrl = (process.env.APP_URL || 'https://brand.up.railway.app').replace(/\/$/, '');
+  return `${appUrl}/api/gmail/callback`;
+}
+
 function loadGmailTokens() {
   if (process.env.GMAIL_REFRESH_TOKEN && process.env.GMAIL_USER) {
     return { refresh_token: process.env.GMAIL_REFRESH_TOKEN, _email: process.env.GMAIL_USER };
   }
-  return null;
+  try { return JSON.parse(fs.readFileSync(GMAIL_TOKEN_PATH, 'utf8')); }
+  catch { return null; }
 }
 
 function getOAuth2Client(tokens) {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    'http://localhost:3001/callback'
+    getRedirectUri()
   );
-  oauth2Client.setCredentials(tokens);
+  if (tokens) oauth2Client.setCredentials(tokens);
   return oauth2Client;
 }
+
+app.get('/api/gmail/auth', (req, res) => {
+  const oauth2Client = getOAuth2Client();
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/userinfo.email'],
+    prompt: 'consent'
+  });
+  res.redirect(url);
+});
+
+app.get('/api/gmail/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Error: ${error}</h2><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
+  try {
+    const oauth2Client = getOAuth2Client();
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    ensureOutputDir();
+    fs.writeFileSync(GMAIL_TOKEN_PATH, JSON.stringify({ ...tokens, _email: data.email }));
+    res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#e8e8e8;max-width:600px;margin:60px auto;padding:24px">
+      <h2 style="color:#00d4d4">✓ Gmail Connected!</h2>
+      <p>Sending from: <strong>${data.email}</strong></p>
+      <p style="color:rgba(255,255,255,.5);font-size:13px;margin-top:16px">To keep this working across Railway redeploys, add these two env vars in Railway:</p>
+      <pre style="background:rgba(255,255,255,.06);padding:16px;border-radius:8px;font-size:12px;word-break:break-all;margin-top:8px">GMAIL_USER=${data.email}
+GMAIL_REFRESH_TOKEN=${tokens.refresh_token}</pre>
+      <a href="/" style="color:#00d4d4;display:inline-block;margin-top:20px">← Back to Brand Outreach</a>
+    </body></html>`);
+  } catch (err) {
+    res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Error: ${err.message}</h2><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
+  }
+});
 
 app.get('/api/gmail/status', (req, res) => {
   const tokens = loadGmailTokens();
