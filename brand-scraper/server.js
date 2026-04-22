@@ -284,6 +284,11 @@ app.get('/api/gmail/auth', (req, res) => {
 app.get('/api/gmail/callback', async (req, res) => {
   const { code, error } = req.query;
   if (error) return res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Error: ${error}</h2><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
+
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Missing env vars</h2><p>GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in Railway Variables before connecting Gmail.</p><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
+  }
+
   try {
     const oauth2Client = getOAuth2Client();
     const { tokens } = await oauth2Client.getToken(code);
@@ -301,7 +306,8 @@ GMAIL_REFRESH_TOKEN=${tokens.refresh_token}</pre>
       <a href="/" style="color:#00d4d4;display:inline-block;margin-top:20px">← Back to Brand Outreach</a>
     </body></html>`);
   } catch (err) {
-    res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Error: ${err.message}</h2><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
+    const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    res.send(`<html><body style="font-family:sans-serif;background:#0a0a0f;color:#f85149;padding:40px"><h2>Error: ${err.message}</h2><pre style="font-size:12px;color:rgba(255,100,100,.8)">${detail}</pre><a href="/" style="color:#00d4d4">← Back</a></body></html>`);
   }
 });
 
